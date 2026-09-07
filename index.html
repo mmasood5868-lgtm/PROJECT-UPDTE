@@ -2,36 +2,53 @@
 # 0. المكتبات الأساسية
 # ================================================================
 from datetime import datetime
-import io
+import hashlib
+import warnings
+
 import dash
 import dash_bootstrap_components as dbc
-from dash import ALL, MATCH, Input, Output, State, callback_context, dash_table, dcc, html
+from dash import Input, Output, State, callback_context, dcc, html, dash_table
+import dash_table
 import pandas as pd
-import plotly.graph_objects as go
 import plotly.express as px
-import hashlib
+import plotly.graph_objects as go
+
 import numpy as np
+
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, AdaBoostRegressor, BaggingRegressor, ExtraTreesRegressor
+
+from sklearn.ensemble import (
+    RandomForestRegressor,
+    GradientBoostingRegressor,
+    AdaBoostRegressor,
+    BaggingRegressor,
+    ExtraTreesRegressor
+)
 from sklearn.tree import DecisionTreeRegressor
-import warnings
-warnings.filterwarnings('ignore')
+
+warnings.filterwarnings("ignore")
 
 # -----------------------------
 # 0.5 نظام الحماية بكلمة مرور
 # -----------------------------
 PASSWORD_HASH = hashlib.sha256("123456".encode()).hexdigest()
 
-def check_password(password):
+def check_password(password: str) -> bool:
     return hashlib.sha256(password.encode()).hexdigest() == PASSWORD_HASH
 
-# -----------------------------
+# ================================================================
 # 1. البيانات الأولية للمشاريع
-# -----------------------------
-data = [
+# ================================================================
+cols = [
+    "Project ID", "Project Name", "Project Manager", "Client / Sector", "Status",
+    "Contract Value", "Actual Cost", "Forecasted Spend", "Collected Amount",
+    "Uncollected Amount", "% Spent", "% Collected"
+]
+
+raw_projects = [
     ["PRJ-001", "تقديم الخدمات الاستشارية لدراسة تطوير خطط تشغيل و صيانة المرافق الهامة", None, "وزارة البيئة و المياه و الزراعة", "قيد التنفيذ", 24403000, 24063850, 2897500, 21166350, 2897500, 0, 0],
     ["PRJ-002", "الاشراف علي تصميم و انشاء المختبر البيطري المركزي", None, "وزارة البيئة و المياه و الزراعة", "قيد التنفيذ", 15503196, 11261424, 1103692, 10157732, 1103692, 0, 0],
     ["PRJ-003", "تقديم الخدمات الاستشارية للاشراف علي المشاريع الهندسية ببنك التنمية", None, "بنك التنمية", "قيد التنفيذ", 5796000, 4588500, 241500, 4347000, 241500, 0, 0],
@@ -46,21 +63,21 @@ data = [
     ["PRJ-012", "الاشراف علي المشاريع الصغيرة بجميع مناطق المملكة (المرحلة الثانية)", None, "وزارة البيئة و المياه و الزراعة", "قيد التنفيذ", 20841128, 3664500, 3664500, 0, 3664500, 0, 0],
 ]
 
-cols = [
-    "Project ID", "Project Name", "Project Manager", "Client / Sector", "Status",
-    "Contract Value", "Actual Cost", "Forecasted Spend", "Collected Amount",
-    "Uncollected Amount", "% Spent", "% Collected"
-]
-
 def prepare_dataframe(raw_data):
     df = pd.DataFrame(raw_data, columns=cols)
+
     num_cols = ["Contract Value", "Actual Cost", "Forecasted Spend", "Collected Amount", "Uncollected Amount"]
     for c in num_cols:
         df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
+
     df["Remaining Budget"] = df["Contract Value"] - df["Actual Cost"]
     df["% Actual Spent (calc)"] = (df["Actual Cost"] / df["Contract Value"].replace({0: pd.NA})).fillna(0)
     df["% Collected (calc)"] = (df["Collected Amount"] / df["Contract Value"].replace({0: pd.NA})).fillna(0)
-    df["Spend Status"] = df.apply(lambda r: "تجاوز الميزانية" if r["Forecasted Spend"] > r["Contract Value"] else "ضمن الميزانية", axis=1)
+
+    df["Spend Status"] = df.apply(
+        lambda r: "تجاوز الميزانية" if r["Forecasted Spend"] > r["Contract Value"] else "ضمن الميزانية",
+        axis=1
+    )
     return df
 
 # -----------------------------
@@ -71,79 +88,76 @@ def generate_ml_data():
     np.random.seed(42)
     n_samples = 200
     data_ml = pd.DataFrame({
-        'size': np.random.uniform(500, 5000, n_samples),
-        'rooms': np.random.randint(1, 10, n_samples),
-        'age': np.random.randint(0, 50, n_samples),
-        'location_score': np.random.uniform(1, 10, n_samples),
-        'price': np.random.uniform(100000, 1000000, n_samples)
+        "size": np.random.uniform(500, 5000, n_samples),
+        "rooms": np.random.randint(1, 10, n_samples),
+        "age": np.random.randint(0, 50, n_samples),
+        "location_score": np.random.uniform(1, 10, n_samples),
+        "price": np.random.uniform(100000, 1000000, n_samples),
     })
+
     # إضافة علاقة غير خطية
-    data_ml['price'] = (
-        100000 +
-        data_ml['size'] * 150 +
-        data_ml['rooms'] * 20000 -
-        data_ml['age'] * 5000 +
-        data_ml['location_score'] * 30000 +
-        np.random.normal(0, 50000, n_samples)
+    data_ml["price"] = (
+        100000
+        + data_ml["size"] * 150
+        + data_ml["rooms"] * 20000
+        - data_ml["age"] * 5000
+        + data_ml["location_score"] * 30000
+        + np.random.normal(0, 50000, n_samples)
     )
     return data_ml
 
 def train_and_evaluate_models():
-    """تدريب وتقييم نماذج ML"""
-    # تحميل البيانات
     df = generate_ml_data()
-    
-    # تحديد المتغيرات
-    X = df[['size', 'rooms', 'age', 'location_score']]
-    y = df['price']
-    
-    # تقسيم البيانات
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    
-    # تطبيع البيانات
+    X = df[["size", "rooms", "age", "location_score"]]
+    y = df["price"]
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42
+    )
+
     scaler = MinMaxScaler()
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
-    
-    # تعريف النماذج
+
     models = {
-        'الانحدار الخطي': LinearRegression(),
-        'شجرة القرار': DecisionTreeRegressor(random_state=42, max_depth=10),
-        'الغابة العشوائية': RandomForestRegressor(n_estimators=100, random_state=42),
-        'تعزيز التدرج': GradientBoostingRegressor(random_state=42),
-        'AdaBoost': AdaBoostRegressor(random_state=42),
-        'Bagging': BaggingRegressor(random_state=42),
-        'Extra Trees': ExtraTreesRegressor(random_state=42),
+        "الانحدار الخطي": LinearRegression(),
+        "شجرة القرار": DecisionTreeRegressor(random_state=42, max_depth=10),
+        "الغابة العشوائية": RandomForestRegressor(n_estimators=100, random_state=42),
+        "تعزيز التدرج": GradientBoostingRegressor(random_state=42),
+        "AdaBoost": AdaBoostRegressor(random_state=42),
+        "Bagging": BaggingRegressor(random_state=42),
+        "Extra Trees": ExtraTreesRegressor(random_state=42),
     }
-    
-    # تدريب وتقييم النماذج
+
     results = []
     for name, model in models.items():
         model.fit(X_train_scaled, y_train)
         y_pred = model.predict(X_test_scaled)
+
         mse = mean_squared_error(y_test, y_pred)
         r2 = r2_score(y_test, y_pred)
+
         results.append({
-            'النموذج': name,
-            'MSE': round(mse, 2),
-            'R²': round(r2, 4),
-            'RMSE': round(np.sqrt(mse), 2)
+            "النموذج": name,
+            "MSE": round(mse, 2),
+            "R²": round(r2, 4),
+            "RMSE": round(np.sqrt(mse), 2),
         })
-    
+
     results_df = pd.DataFrame(results)
     return results_df, df
 
-# توليد بيانات النماذج
 ml_results, ml_data = train_and_evaluate_models()
 
-# -----------------------------
+# ================================================================
 # 3. إعداد تطبيق Dash
-# -----------------------------
+# ================================================================
 app = dash.Dash(
     __name__,
     external_stylesheets=[dbc.themes.DARKLY],
     suppress_callback_exceptions=True,
 )
+
 server = app.server
 
 def fmt_money(x):
@@ -176,12 +190,15 @@ def create_card(title, value_text, subtitle="", icon=None):
         ],
     )
 
-# نافذة إضافة/تعديل مشروع
+# ================================================================
+# 4. مودال إضافة/تعديل مشروع
+# ================================================================
 project_modal = dbc.Modal(
     [
         dbc.ModalHeader(dbc.ModalTitle("إدارة المشروع"), close_button=True),
         dbc.ModalBody([
             html.Div(id="modal-message", style={"color": "#ff6b6b", "marginBottom": "10px"}),
+
             dbc.Row([
                 dbc.Col([dbc.Label("معرف المشروع"), dbc.Input(id="modal-project-id", type="text", placeholder="مثل: PRJ-013")], width=6),
                 dbc.Col([dbc.Label("اسم المشروع"), dbc.Input(id="modal-project-name", type="text", placeholder="اسم المشروع")], width=6),
@@ -191,7 +208,10 @@ project_modal = dbc.Modal(
                 dbc.Col([dbc.Label("القطاع / العميل"), dbc.Input(id="modal-client", type="text", placeholder="القطاع أو العميل")], width=6),
             ]),
             dbc.Row([
-                dbc.Col([dbc.Label("الحالة"), dbc.Select(id="modal-status", options=[{"label": s, "value": s} for s in ["قيد التنفيذ", "مكتمل", "معلق", "ملغي"]], value="قيد التنفيذ")], width=6),
+                dbc.Col([dbc.Label("الحالة"),
+                         dbc.Select(id="modal-status",
+                                     options=[{"label": s, "value": s} for s in ["قيد التنفيذ", "مكتمل", "معلق", "ملغي"]],
+                                     value="قيد التنفيذ")], width=6),
                 dbc.Col([dbc.Label("قيمة العقد"), dbc.Input(id="modal-contract-value", type="number", placeholder="0")], width=6),
             ]),
             dbc.Row([
@@ -214,85 +234,89 @@ project_modal = dbc.Modal(
 )
 
 # ================================================================
-# 4. شاشة تسجيل الدخول
+# 5. شاشة تسجيل الدخول
 # ================================================================
 def login_layout():
     return html.Div(
-        style={"display": "flex", "justifyContent": "center", "alignItems": "center", "minHeight": "100vh", "background": "#0b1220", "fontFamily": "Tajawal, Cairo, Arial, sans-serif"},
+        style={"display": "flex", "justifyContent": "center", "alignItems": "center", "minHeight": "100vh",
+               "background": "#0b1220", "fontFamily": "Tajawal, Cairo, Arial, sans-serif"},
         children=[
             html.Div(
-                style={"background": "linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02))", "border": "1px solid rgba(255,255,255,0.08)", "borderRadius": "20px", "padding": "40px", "maxWidth": "400px", "width": "100%", "textAlign": "center"},
+                style={"background": "linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02))",
+                       "border": "1px solid rgba(255,255,255,0.08)",
+                       "borderRadius": "20px", "padding": "40px", "maxWidth": "400px",
+                       "width": "100%", "textAlign": "center"},
                 children=[
                     html.H2("🔐 منصة محفظة المشاريع", style={"color": "white", "marginBottom": "10px"}),
-                    html.P("يرجى إدخال كلمة المرور للوصول إلى لوحة التحكم", style={"color": "rgba(255,255,255,0.7)", "marginBottom": "25px"}),
-                    dbc.Input(id="password-input", type="password", placeholder="أدخل كلمة المرور", style={"background": "#1a2332", "color": "white", "border": "1px solid rgba(255,255,255,0.1)", "borderRadius": "10px", "padding": "12px", "marginBottom": "15px", "width": "100%", "textAlign": "right"}),
+                    html.P("يرجى إدخال كلمة المرور للوصول إلى لوحة التحكم",
+                           style={"color": "rgba(255,255,255,0.7)", "marginBottom": "25px"}),
+                    dbc.Input(
+                        id="password-input", type="password", placeholder="أدخل كلمة المرور",
+                        style={"background": "#1a2332", "color": "white",
+                               "border": "1px solid rgba(255,255,255,0.1)",
+                               "borderRadius": "10px", "padding": "12px",
+                               "marginBottom": "15px", "width": "100%", "textAlign": "right"}
+                    ),
                     html.Div(id="login-error", style={"color": "#ef4444", "fontSize": "14px", "marginBottom": "15px"}),
-                    dbc.Button("تسجيل الدخول", id="login-btn", color="primary", style={"width": "100%", "fontWeight": "bold", "padding": "12px", "borderRadius": "10px"}),
-                    html.Div("🔑 كلمة المرور الافتراضية: 123456", style={"color": "rgba(255,255,255,0.4)", "fontSize": "12px", "marginTop": "15px"}),
+                    dbc.Button("تسجيل الدخول", id="login-btn", color="primary",
+                               style={"width": "100%", "fontWeight": "bold", "padding": "12px", "borderRadius": "10px"}),
+                    html.Div("🔑 كلمة المرور الافتراضية: 123456",
+                             style={"color": "rgba(255,255,255,0.4)", "fontSize": "12px", "marginTop": "15px"}),
                 ],
             )
         ],
     )
 
 # ================================================================
-# 5. التطبيق الرئيسي
+# 6. Layout الرئيسي
 # ================================================================
 def main_layout():
-    # إنشاء مخطط مقارنة النماذج
+    # مخطط مقارنة النماذج
     fig_ml_comparison = go.Figure()
     fig_ml_comparison.add_trace(go.Bar(
-        x=ml_results['النموذج'],
-        y=ml_results['R²'],
-        name='R² Score',
-        marker_color='#0ea5e9',
-        text=ml_results['R²'].apply(lambda x: f'{x:.2%}'),
-        textposition='outside',
+        x=ml_results["النموذج"], y=ml_results["R²"],
+        name="R² Score", marker_color="#0ea5e9",
+        text=ml_results["R²"].apply(lambda x: f"{x:.2%}"),
+        textposition="outside"
     ))
     fig_ml_comparison.add_trace(go.Bar(
-        x=ml_results['النموذج'],
-        y=ml_results['RMSE'] / 100000,
-        name='RMSE (بالمئات الآلاف)',
-        marker_color='#fbbf24',
-        text=ml_results['RMSE'].apply(lambda x: f'{x:,.0f}'),
-        textposition='outside',
-        yaxis='y2',
+        x=ml_results["النموذج"], y=ml_results["RMSE"] / 100000,
+        name="RMSE (بالمئات الآلاف)", marker_color="#fbbf24",
+        text=ml_results["RMSE"].apply(lambda x: f"{x:,.0f}"),
+        textposition="outside", yaxis="y2"
     ))
     fig_ml_comparison.update_layout(
         title=dict(text="مقارنة أداء نماذج التعلم الآلي", font=dict(color="white", size=16)),
         xaxis=dict(title=dict(text="النموذج", font=dict(color="white")), tickfont=dict(color="white")),
         yaxis=dict(title=dict(text="R² Score", font=dict(color="white")), tickfont=dict(color="white"), range=[0, 1]),
-        yaxis2=dict(title=dict(text="RMSE", font=dict(color="#fbbf24")), tickfont=dict(color="#fbbf24"), overlaying="y", side="right"),
+        yaxis2=dict(title=dict(text="RMSE", font=dict(color="#fbbf24")), tickfont=dict(color="#fbbf24"),
+                    overlaying="y", side="right"),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="white")),
         height=400,
         margin=dict(l=30, r=50, t=60, b=80),
         paper_bgcolor="#0f1830",
         plot_bgcolor="#0f1830",
         font=dict(color="white"),
-        barmode='group',
+        barmode="group",
     )
 
-    # مخطط توزيع الأسعار
     fig_price_dist = px.histogram(
-        ml_data, x='price', nbins=30,
-        title="توزيع الأسعار في بيانات التدريب",
-        color_discrete_sequence=['#22c55e'],
-        labels={'price': 'السعر', 'count': 'العدد'}
+        ml_data, x="price", nbins=30, title="توزيع الأسعار في بيانات التدريب",
+        color_discrete_sequence=["#22c55e"],
+        labels={"price": "السعر", "count": "العدد"}
     )
     fig_price_dist.update_layout(
-        paper_bgcolor="#0f1830",
-        plot_bgcolor="#0f1830",
-        font=dict(color="white"),
-        height=300,
+        paper_bgcolor="#0f1830", plot_bgcolor="#0f1830", font=dict(color="white"), height=300
     )
 
     return html.Div(
         dir="rtl",
         style={"fontFamily": "Tajawal, Cairo, Arial, sans-serif", "background": "#0b1220", "color": "white", "minHeight": "100vh"},
         children=[
-            dcc.Store(id="projects-store", data=prepare_dataframe(data).to_dict("records")),
+            dcc.Store(id="projects-store", data=prepare_dataframe(raw_projects).to_dict("records")),
             dcc.Download(id="download-csv"),
             dcc.Store(id="login-state", data="logged_in"),
-            
+
             # Header
             html.Div(
                 style={"padding": "18px 24px", "borderBottom": "1px solid rgba(255,255,255,0.08)"},
@@ -311,14 +335,14 @@ def main_layout():
                                     dbc.Button("➕ إضافة مشروع", id="add-project-btn", color="success", style={"fontWeight": "bold"}),
                                     dbc.Button("🔄 تحديث الكل", id="refresh-all-btn", color="info", style={"fontWeight": "bold"}),
                                     html.Span("Dashboard • متكامل", style={"opacity": 0.85, "fontSize": "14px", "marginRight": "10px"}),
-                                ],
+                                ]
                             ),
-                        ],
-                    )
-                ],
+                        ]
+                    ),
+                ]
             ),
-            
-            # تبويبات (Tabs)
+
+            # Tabs
             dbc.Tabs(
                 [
                     dbc.Tab(label="📊 المشاريع", tab_id="tab-projects", active_label_style={"color": "#0ea5e9"}),
@@ -328,200 +352,163 @@ def main_layout():
                 active_tab="tab-projects",
                 style={"padding": "0 24px", "borderBottom": "1px solid rgba(255,255,255,0.1)"},
             ),
-            
-            # محتوى تبويب المشاريع
+
+            # Tab content
             html.Div(id="tab-projects-content", children=[
                 # Filters
-                html.Div(
-                    style={"padding": "18px 24px"},
-                    children=[
-                        html.Div(
-                            style={"display": "grid", "gridTemplateColumns": "repeat(4, minmax(0, 1fr))", "gap": "14px"},
-                            children=[
-                                html.Div([html.Label("حالة المشروع", style={"opacity": 0.9, "marginBottom": 8}), dcc.Dropdown(id="filter-status", multi=True, className="dropdown-dark")]),
-                                html.Div([html.Label("القطاع / العميل", style={"opacity": 0.9, "marginBottom": 8}), dcc.Dropdown(id="filter-client", multi=True, className="dropdown-dark")]),
-                                html.Div([html.Label("مدير المشروع", style={"opacity": 0.9, "marginBottom": 8}), dcc.Dropdown(id="filter-manager", multi=True, className="dropdown-dark")]),
-                                html.Div([html.Label("بحث سريع", style={"opacity": 0.9, "marginBottom": 8}), dbc.Input(id="search-input", type="text", placeholder="بحث باسم المشروع...", style={"background": "#1a2332", "color": "white", "border": "1px solid rgba(255,255,255,0.1)"})]),
-                            ],
-                        )
-                    ],
-                ),
-                # مخطط خط الصرف
-                html.Div(
-                    style={"padding": "0 24px 18px 24px"},
-                    children=[
-                        html.Div(
-                            style={"background": "#0f1830", "borderRadius": "12px", "padding": "16px", "border": "1px solid rgba(255,255,255,0.06)"},
-                            children=[
-                                html.Div(
-                                    style={"display": "flex", "justifyContent": "space-between", "alignItems": "center", "marginBottom": "10px"},
-                                    children=[
-                                        html.Div(style={"fontWeight": 800, "fontSize": 18, "color": "#white"}, children="📈 خطة الصرف مقابل الفعلي"),
-                                        html.Small("مقارنة بين المصروف المتوقع والفعلي", style={"opacity": 0.6, "fontSize": "12px"}),
-                                    ],
-                                ),
-                                dcc.Graph(id="forecast-vs-actual-chart", style={"background": "#0f1830", "borderRadius": "12px", "padding": "8px"}),
-                            ],
-                        ),
-                    ],
-                ),
+                html.Div(style={"padding": "18px 24px"}, children=[
+                    html.Div(style={"display": "grid", "gridTemplateColumns": "repeat(4, minmax(0, 1fr))", "gap": "14px"}, children=[
+                        html.Div([html.Label("حالة المشروع", style={"opacity": 0.9, "marginBottom": 8}),
+                                  dcc.Dropdown(id="filter-status", multi=True, className="dropdown-dark")]),
+                        html.Div([html.Label("القطاع / العميل", style={"opacity": 0.9, "marginBottom": 8}),
+                                  dcc.Dropdown(id="filter-client", multi=True, className="dropdown-dark")]),
+                        html.Div([html.Label("مدير المشروع", style={"opacity": 0.9, "marginBottom": 8}),
+                                  dcc.Dropdown(id="filter-manager", multi=True, className="dropdown-dark")]),
+                        html.Div([html.Label("بحث سريع", style={"opacity": 0.9, "marginBottom": 8}),
+                                  dbc.Input(id="search-input", type="text", placeholder="بحث باسم المشروع...",
+                                            style={"background": "#1a2332", "color": "white", "border": "1px solid rgba(255,255,255,0.1)"})]),
+                    ])
+                ]),
+
+                # Forecast vs Actual
+                html.Div(style={"padding": "0 24px 18px 24px"}, children=[
+                    html.Div(style={"background": "#0f1830", "borderRadius": "12px", "padding": "16px", "border": "1px solid rgba(255,255,255,0.06)"},
+                             children=[
+                                 html.Div(style={"display": "flex", "justifyContent": "space-between", "alignItems": "center", "marginBottom": "10px"},
+                                          children=[
+                                              html.Div(style={"fontWeight": 800, "fontSize": 18, "color": "#white"}, children="📈 خطة الصرف مقابل الفعلي"),
+                                              html.Small("مقارنة بين المصروف المتوقع والفعلي", style={"opacity": 0.6, "fontSize": "12px"})
+                                          ]),
+                                 dcc.Graph(id="forecast-vs-actual-chart")
+                             ])
+                ]),
+
                 # Cards
-                html.Div(
-                    style={"padding": "0 24px 18px 24px"},
-                    children=[
-                        html.Div(
-                            style={"display": "grid", "gridTemplateColumns": "repeat(4, minmax(0, 1fr))", "gap": "14px"},
-                            children=[
-                                html.Div(id="card-total-contract"),
-                                html.Div(id="card-actual-spent"),
-                                html.Div(id="card-forecast-spend"),
-                                html.Div(id="card-remaining-budget"),
-                            ],
-                        )
-                    ],
-                ),
-                # Charts
-                html.Div(
-                    style={"padding": "0 24px 18px 24px"},
-                    children=[
-                        html.Div(
-                            style={"display": "grid", "gridTemplateColumns": "2fr 1fr", "gap": "14px"},
-                            children=[
-                                html.Div([
-                                    html.Div(style={"display": "flex", "justifyContent": "space-between", "alignItems": "center", "marginBottom": 10}, children=[
-                                        html.Div(style={"fontWeight": 800, "fontSize": 16, "opacity": 0.95}, children="مقارنة القيم حسب المشروع"),
-                                        html.Small("انقر على الصف في الجدول أدناه لعرض التفاصيل", style={"opacity": 0.6, "fontSize": "12px"}),
-                                    ]),
-                                    dcc.Graph(id="bar-comparison", style={"background": "#0f1830", "borderRadius": "12px", "padding": "8px"}),
-                                ]),
-                                html.Div([
-                                    html.Div(style={"marginBottom": 10, "fontWeight": 800, "fontSize": 16, "opacity": 0.95}, children="مؤشرات الإنجاز"),
-                                    html.Div(style={"display": "grid", "gridTemplateColumns": "1fr", "gap": "14px"}, children=[
-                                        dcc.Graph(id="gauge-spent", style={"background": "#0f1830", "borderRadius": "12px", "padding": "8px"}),
-                                        dcc.Graph(id="gauge-collected", style={"background": "#0f1830", "borderRadius": "12px", "padding": "8px"}),
-                                    ]),
-                                ]),
-                            ],
-                        )
-                    ],
-                ),
-                # Table
-                html.Div(
-                    style={"padding": "0 24px 40px 24px"},
-                    children=[
-                        html.Div(
-                            style={"display": "flex", "justifyContent": "space-between", "alignItems": "center", "marginBottom": 10},
-                            children=[
-                                html.Div(style={"fontWeight": 800, "fontSize": 16, "opacity": 0.95}, children="جدول المشاريع التفصيلي (اضغط على الصف للتفاصيل/التعديل)"),
-                                html.Div(style={"display": "flex", "gap": "10px"}, children=[
-                                    dbc.Button("📥 تصدير CSV", id="export-btn", color="secondary", size="sm"),
-                                    dbc.Button("🗑️ حذف المشروع المحدد", id="delete-selected-btn", color="danger", size="sm"),
-                                ]),
-                            ],
-                        ),
-                        dcc.Loading(children=[
-                            dash_table.DataTable(
-                                id="projects-table",
-                                style_table={"overflowX": "auto", "background": "#0f1830", "borderRadius": "12px"},
-                                style_cell={"textAlign": "right", "padding": "10px", "background": "#0f1830", "color": "white", "border": "1px solid rgba(255,255,255,0.06)", "fontFamily": "Tajawal, Cairo, Arial, sans-serif"},
-                                style_header={"background": "#0b142a", "fontWeight": "bold", "color": "white"},
-                                page_size=10,
-                                sort_action="native",
-                                filter_action="none",
-                                row_selectable="single",
-                                columns=[
-                                    {"name": "المعرف", "id": "Project ID"},
-                                    {"name": "اسم المشروع", "id": "Project Name"},
-                                    {"name": "مدير المشروع", "id": "Project Manager"},
-                                    {"name": "القطاع / العميل", "id": "Client / Sector"},
-                                    {"name": "الحالة", "id": "Status"},
-                                    {"name": "قيمة العقد", "id": "Contract Value_fmt"},
-                                    {"name": "المصروف الفعلي", "id": "Actual Cost_fmt"},
-                                    {"name": "المتبقي لم يصرف", "id": "Remaining Budget_fmt"},
-                                    {"name": "المبلغ المحصّل", "id": "Collected Amount_fmt"},
-                                    {"name": "المتبقي تحصيله", "id": "Uncollected Amount_fmt"},
-                                    {"name": "% الصرف الفعلي", "id": "% Actual Spent_fmt"},
-                                    {"name": "% التحصيل", "id": "% Collected_fmt"},
-                                    {"name": "Spend Status", "id": "Spend Status"},
-                                ],
-                                data=[],
-                                style_data_conditional=[],
-                            )
+                html.Div(style={"padding": "0 24px 18px 24px"}, children=[
+                    html.Div(style={"display": "grid", "gridTemplateColumns": "repeat(4, minmax(0, 1fr))", "gap": "14px"}, children=[
+                        html.Div(id="card-total-contract"),
+                        html.Div(id="card-actual-spent"),
+                        html.Div(id="card-forecast-spend"),
+                        html.Div(id="card-remaining-budget"),
+                    ])
+                ]),
+
+                # Charts + Gauges
+                html.Div(style={"padding": "0 24px 18px 24px"}, children=[
+                    html.Div(style={"display": "grid", "gridTemplateColumns": "2fr 1fr", "gap": "14px"}, children=[
+                        html.Div(children=[
+                            html.Div(style={"display": "flex", "justifyContent": "space-between", "alignItems": "center", "marginBottom": 10},
+                                     children=[
+                                         html.Div(style={"fontWeight": 800, "fontSize": 16, "opacity": 0.95}, children="مقارنة القيم حسب المشروع"),
+                                         html.Small("انقر على الصف في الجدول أدناه لعرض التفاصيل", style={"opacity": 0.6, "fontSize": "12px"}),
+                                     ]),
+                            dcc.Graph(id="bar-comparison")
                         ]),
-                    ],
-                ),
+                        html.Div(children=[
+                            html.Div(style={"marginBottom": 10, "fontWeight": 800, "fontSize": 16, "opacity": 0.95}, children="مؤشرات الإنجاز"),
+                            html.Div(style={"display": "grid", "gridTemplateColumns": "1fr", "gap": "14px"}, children=[
+                                dcc.Graph(id="gauge-spent"),
+                                dcc.Graph(id="gauge-collected"),
+                            ])
+                        ])
+                    ])
+                ]),
+
+                # Table
+                html.Div(style={"padding": "0 24px 40px 24px"}, children=[
+                    html.Div(style={"display": "flex", "justifyContent": "space-between", "alignItems": "center", "marginBottom": 10},
+                             children=[
+                                 html.Div(style={"fontWeight": 800, "fontSize": 16, "opacity": 0.95}, children="جدول المشاريع التفصيلي (اضغط على الصف للتفاصيل/التعديل)"),
+                                 html.Div(style={"display": "flex", "gap": "10px"}, children=[
+                                     dbc.Button("📥 تصدير CSV", id="export-btn", color="secondary", size="sm"),
+                                     dbc.Button("🗑️ حذف المشروع المحدد", id="delete-selected-btn", color="danger", size="sm"),
+                                 ])
+                             ]),
+                    dcc.Loading(children=[
+                        dash_table.DataTable(
+                            id="projects-table",
+                            style_table={"overflowX": "auto", "background": "#0f1830", "borderRadius": "12px"},
+                            style_cell={"textAlign": "right", "padding": "10px", "background": "#0f1830", "color": "white", "border": "1px solid rgba(255,255,255,0.06)", "fontFamily": "Tajawal, Cairo, Arial, sans-serif"},
+                            style_header={"background": "#0b142a", "fontWeight": "bold", "color": "white"},
+                            page_size=10,
+                            sort_action="native",
+                            filter_action="none",
+                            row_selectable="single",
+                            columns=[
+                                {"name": "المعرف", "id": "Project ID"},
+                                {"name": "اسم المشروع", "id": "Project Name"},
+                                {"name": "مدير المشروع", "id": "Project Manager"},
+                                {"name": "القطاع / العميل", "id": "Client / Sector"},
+                                {"name": "الحالة", "id": "Status"},
+                                {"name": "قيمة العقد", "id": "Contract Value_fmt"},
+                                {"name": "المصروف الفعلي", "id": "Actual Cost_fmt"},
+                                {"name": "المتبقي لم يصرف", "id": "Remaining Budget_fmt"},
+                                {"name": "المبلغ المحصّل", "id": "Collected Amount_fmt"},
+                                {"name": "المتبقي تحصيله", "id": "Uncollected Amount_fmt"},
+                                {"name": "% الصرف الفعلي", "id": "% Actual Spent_fmt"},
+                                {"name": "% التحصيل", "id": "% Collected_fmt"},
+                                {"name": "Spend Status", "id": "Spend Status"},
+                            ],
+                            data=[],
+                            style_data_conditional=[]
+                        )
+                    ])
+                ])
             ]),
-            
-            # محتوى تبويب تحليل النماذج
-            html.Div(id="tab-ml-content", style={"display": "none"}, children=[
-                html.Div(
-                    style={"padding": "18px 24px"},
-                    children=[
-                        html.Div(
-                            style={"background": "#0f1830", "borderRadius": "12px", "padding": "20px", "border": "1px solid rgba(255,255,255,0.06)"},
-                            children=[
-                                html.H4("🤖 تحليل أداء نماذج التعلم الآلي", style={"color": "white", "marginBottom": "15px"}),
-                                html.P("مقارنة أداء 7 نماذج مختلفة على بيانات تجريبية", style={"color": "rgba(255,255,255,0.7)"}),
-                            ],
-                        ),
-                    ],
-                ),
-                # نتائج النماذج
-                html.Div(
-                    style={"padding": "0 24px 18px 24px"},
-                    children=[
-                        html.Div(
-                            style={"display": "grid", "gridTemplateColumns": "2fr 1fr", "gap": "14px"},
-                            children=[
-                                html.Div(
-                                    style={"background": "#0f1830", "borderRadius": "12px", "padding": "16px", "border": "1px solid rgba(255,255,255,0.06)"},
-                                    children=[
-                                        html.Div(style={"fontWeight": 800, "fontSize": 16, "color": "white", "marginBottom": "10px"}, children="📊 مقارنة أداء النماذج"),
-                                        dcc.Graph(figure=fig_ml_comparison, style={"background": "#0f1830", "borderRadius": "12px"}),
-                                    ],
-                                ),
-                                html.Div(
-                                    style={"background": "#0f1830", "borderRadius": "12px", "padding": "16px", "border": "1px solid rgba(255,255,255,0.06)"},
-                                    children=[
-                                        html.Div(style={"fontWeight": 800, "fontSize": 16, "color": "white", "marginBottom": "10px"}, children="📈 توزيع الأسعار"),
-                                        dcc.Graph(figure=fig_price_dist, style={"background": "#0f1830", "borderRadius": "12px"}),
-                                    ],
-                                ),
-                            ],
-                        ),
-                    ],
-                ),
-                # جدول نتائج النماذج
-                html.Div(
-                    style={"padding": "0 24px 40px 24px"},
-                    children=[
-                        html.Div(
-                            style={"background": "#0f1830", "borderRadius": "12px", "padding": "16px", "border": "1px solid rgba(255,255,255,0.06)"},
-                            children=[
-                                html.Div(style={"fontWeight": 800, "fontSize": 16, "color": "white", "marginBottom": "10px"}, children="📋 تفاصيل نتائج النماذج"),
-                                dash_table.DataTable(
-                                    id="ml-results-table",
-                                    columns=[
-                                        {"name": "النموذج", "id": "النموذج"},
-                                        {"name": "MSE", "id": "MSE"},
-                                        {"name": "RMSE", "id": "RMSE"},
-                                        {"name": "R²", "id": "R²"},
-                                    ],
-                                    data=ml_results.to_dict("records"),
-                                    style_table={"overflowX": "auto", "background": "#0f1830", "borderRadius": "12px"},
-                                    style_cell={"textAlign": "right", "padding": "10px", "background": "#0f1830", "color": "white", "border": "1px solid rgba(255,255,255,0.06)", "fontFamily": "Tajawal, Cairo, Arial, sans-serif"},
-                                    style_header={"background": "#0b142a", "fontWeight": "bold", "color": "white"},
-                                    style_data_conditional=[
-                                        {"if": {"filter_query": "{R²} > 0.8"}, "backgroundColor": "rgba(16,185,129,0.2)", "color": "#4ade80"},
-                                        {"if": {"filter_query": "{R²} < 0.5"}, "backgroundColor": "rgba(239,68,68,0.2)", "color": "#f87171"},
-                                    ],
-                                ),
-                            ],
-                        ),
-                    ],
-                ),
-            ]),
-            
+
+            # Tab ML
+            html.Div(
+                id="tab-ml-content",
+                style={"display": "none"},
+                children=[
+                    html.Div(style={"padding": "18px 24px"}, children=[
+                        html.Div(style={"background": "#0f1830", "borderRadius": "12px", "padding": "20px", "border": "1px solid rgba(255,255,255,0.06)"},
+                                 children=[
+                                     html.H4("🤖 تحليل أداء نماذج التعلم الآلي", style={"color": "white", "marginBottom": "15px"}),
+                                     html.P("مقارنة أداء 7 نماذج مختلفة على بيانات تجريبية", style={"color": "rgba(255,255,255,0.7)"}),
+                                 ])
+                    ]),
+                    html.Div(style={"padding": "0 24px 18px 24px"}, children=[
+                        html.Div(style={"display": "grid", "gridTemplateColumns": "2fr 1fr", "gap": "14px"}, children=[
+                            html.Div(style={"background": "#0f1830", "borderRadius": "12px", "padding": "16px", "border": "1px solid rgba(255,255,255,0.06)"},
+                                     children=[
+                                         html.Div(style={"fontWeight": 800, "fontSize": 16, "color": "white", "marginBottom": "10px"}, children="📊 مقارنة أداء النماذج"),
+                                         dcc.Graph(figure=fig_ml_comparison)
+                                     ]),
+                            html.Div(style={"background": "#0f1830", "borderRadius": "12px", "padding": "16px", "border": "1px solid rgba(255,255,255,0.06)"},
+                                     children=[
+                                         html.Div(style={"fontWeight": 800, "fontSize": 16, "color": "white", "marginBottom": "10px"}, children="📈 توزيع الأسعار"),
+                                         dcc.Graph(figure=fig_price_dist)
+                                     ]),
+                        ])
+                    ]),
+                    html.Div(style={"padding": "0 24px 40px 24px"}, children=[
+                        html.Div(style={"background": "#0f1830", "borderRadius": "12px", "padding": "16px", "border": "1px solid rgba(255,255,255,0.06)"},
+                                 children=[
+                                     html.Div(style={"fontWeight": 800, "fontSize": 16, "color": "white", "marginBottom": "10px"}, children="📋 تفاصيل نتائج النماذج"),
+                                     dash_table.DataTable(
+                                         id="ml-results-table",
+                                         columns=[
+                                             {"name": "النموذج", "id": "النموذج"},
+                                             {"name": "MSE", "id": "MSE"},
+                                             {"name": "RMSE", "id": "RMSE"},
+                                             {"name": "R²", "id": "R²"},
+                                         ],
+                                         data=ml_results.to_dict("records"),
+                                         style_table={"overflowX": "auto", "background": "#0f1830", "borderRadius": "12px"},
+                                         style_cell={"textAlign": "right", "padding": "10px", "background": "#0f1830", "color": "white",
+                                                     "border": "1px solid rgba(255,255,255,0.06)", "fontFamily": "Tajawal, Cairo, Arial, sans-serif"},
+                                         style_header={"background": "#0b142a", "fontWeight": "bold", "color": "white"},
+                                         style_data_conditional=[
+                                             {"if": {"filter_query": "{R²} > 0.8"}, "backgroundColor": "rgba(16,185,129,0.2)", "color": "#4ade80"},
+                                             {"if": {"filter_query": "{R²} < 0.5"}, "backgroundColor": "rgba(239,68,68,0.2)", "color": "#f87171"},
+                                         ],
+                                     )
+                                 ])
+                    ]),
+                ]
+            ),
+
             # Detail Modal
             dbc.Modal(
                 [
@@ -535,9 +522,8 @@ def main_layout():
                 id="project-detail-modal",
                 size="lg",
             ),
-            
             project_modal,
-            
+
             # Footer
             html.Div(
                 style={"padding": "18px 24px", "opacity": 0.7, "borderTop": "1px solid rgba(255,255,255,0.08)", "display": "flex", "justifyContent": "space-between"},
@@ -546,32 +532,26 @@ def main_layout():
                     html.Div(id="footer-info", children=f"آخر تحديث: {datetime.now().strftime('%Y-%m-%d %H:%M')}"),
                 ],
             ),
-            
+
             html.Style("""
-                .card{background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02)); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 14px 16px; min-height: 90px; transition: all 0.3s ease;}
-                .card:hover{background: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.04)); transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,0,0,0.3);}
-                .card-title{opacity:0.85; font-size:14px; font-weight:700; margin-bottom:10px}
-                .card-value{font-size:24px; font-weight:900}
-                .card-subtitle{opacity:0.8; margin-top:6px; font-size:13px}
-                .dropdown-dark .Select-control{background:#1a2332 !important; border-color:rgba(255,255,255,0.1) !important; color:white !important}
-                .dropdown-dark .Select-menu-outer{background:#1a2332 !important; border-color:rgba(255,255,255,0.1) !important}
-                .dropdown-dark .Select-option{background:#1a2332 !important; color:white !important}
-                .dropdown-dark .Select-option.is-selected{background:#0ea5e9 !important}
-                .dropdown-dark .Select-option:hover{background:#2a3a52 !important}
-                .dropdown-dark .Select-value-label{color:white !important}
-                .dropdown-dark .Select-input input{color:white !important}
-                .project-detail-card{background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:12px; padding:14px; margin-bottom:10px}
-                .project-detail-card .label{opacity:0.7; font-size:12px}
-                .project-detail-card .value{font-size:18px; font-weight:bold; margin-top:4px}
-                .nav-tabs .nav-link{color: rgba(255,255,255,0.6) !important; border: none !important; padding: 12px 20px;}
-                .nav-tabs .nav-link.active{color: #0ea5e9 !important; background: transparent !important; border-bottom: 2px solid #0ea5e9 !important;}
-                .nav-tabs .nav-link:hover{color: white !important; background: rgba(255,255,255,0.05) !important;}
-            """),
-        ],
+            .card{background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02)); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 14px 16px; min-height: 90px; transition: all 0.3s ease;}
+            .card:hover{background: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.04)); transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,0,0,0.3);}
+            .card-title{opacity:0.85; font-size:14px; font-weight:700; margin-bottom:10px}
+            .card-value{font-size:24px; font-weight:900}
+            .card-subtitle{opacity:0.8; margin-top:6px; font-size:13px}
+            .dropdown-dark .Select-control{background:#1a2332 !important; border-color:rgba(255,255,255,0.1) !important; color:white !important}
+            .dropdown-dark .Select-menu-outer{background:#1a2332 !important; border-color:rgba(255,255,255,0.1) !important}
+            .dropdown-dark .Select-option{background:#1a2332 !important; color:white !important}
+            .dropdown-dark .Select-option.is-selected{background:#0ea5e9 !important}
+            .dropdown-dark .Select-option:hover{background:#2a3a52 !important}
+            .dropdown-dark .Select-value-label{color:white !important}
+            .dropdown-dark .Select-input input{color:white !important}
+            """)
+        ]
     )
 
 # ================================================================
-# 6. Layout الرئيسي مع التحكم في تسجيل الدخول
+# 7. Layout + تسجيل الدخول
 # ================================================================
 app.layout = html.Div([
     dcc.Location(id="url", refresh=False),
@@ -592,7 +572,6 @@ def render_page(login_clicks, logout_clicks, password, auth_data):
     ctx = callback_context
     if not ctx.triggered:
         return login_layout(), auth_data
-
     trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
 
     if trigger_id == "logout-btn":
@@ -601,8 +580,7 @@ def render_page(login_clicks, logout_clicks, password, auth_data):
     if trigger_id == "login-btn" and password:
         if check_password(password):
             return main_layout(), {"logged_in": True}
-        else:
-            return login_layout(), auth_data
+        return login_layout(), auth_data
 
     if not auth_data.get("logged_in", False):
         return login_layout(), auth_data
@@ -610,7 +588,7 @@ def render_page(login_clicks, logout_clicks, password, auth_data):
     return main_layout(), auth_data
 
 # ================================================================
-# 7. تبديل التبويبات
+# 8. تبديل التبويبات
 # ================================================================
 @app.callback(
     Output("tab-projects-content", "style"),
@@ -620,12 +598,27 @@ def render_page(login_clicks, logout_clicks, password, auth_data):
 def switch_tab(active_tab):
     if active_tab == "tab-projects":
         return {"display": "block"}, {"display": "none"}
-    else:
-        return {"display": "none"}, {"display": "block"}
+    return {"display": "none"}, {"display": "block"}
 
 # ================================================================
-# 8. Callbacks المشاريع
+# 9. Callbacks المشاريع (التصفية + تحديث الكروت + الرسوم + الجدول)
 # ================================================================
+def get_filtered_df(store_data, status_vals, client_vals, manager_vals, search):
+    if not store_data:
+        return pd.DataFrame(columns=cols)
+
+    df = pd.DataFrame(store_data)
+
+    if status_vals:
+        df = df[df["Status"].isin(status_vals)]
+    if client_vals:
+        df = df[df["Client / Sector"].isin(client_vals)]
+    if manager_vals:
+        df = df[df["Project Manager"].fillna("—").isin(manager_vals)]
+    if search:
+        df = df[df["Project Name"].str.contains(search, case=False, na=False)]
+    return df
+
 @app.callback(
     Output("filter-status", "options"),
     Output("filter-status", "value"),
@@ -638,41 +631,33 @@ def switch_tab(active_tab):
 def sync_filter_options(store_data):
     if not store_data:
         return [], [], [], [], [], []
+
     df = pd.DataFrame(store_data)
     statuses = sorted(df["Status"].dropna().unique().tolist())
     clients = sorted(df["Client / Sector"].dropna().unique().tolist())
     managers = sorted(df["Project Manager"].dropna().astype(str).unique().tolist())
+
     return (
         [{"label": s, "value": s} for s in statuses], statuses,
         [{"label": c, "value": c} for c in clients], clients,
         [{"label": m, "value": m} for m in managers], managers,
     )
 
-def get_filtered_df(store_data, status_vals, client_vals, manager_vals, search):
-    if not store_data:
-        return pd.DataFrame(columns=cols)
-    df = pd.DataFrame(store_data)
-    if status_vals:
-        df = df[df["Status"].isin(status_vals)]
-    if client_vals:
-        df = df[df["Client / Sector"].isin(client_vals)]
-    if manager_vals:
-        df = df[df["Project Manager"].fillna("—").isin(manager_vals)]
-    if search:
-        df = df[df["Project Name"].str.contains(search, case=False, na=False)]
-    return df
-
 @app.callback(
     Output("card-total-contract", "children"),
     Output("card-actual-spent", "children"),
     Output("card-forecast-spend", "children"),
     Output("card-remaining-budget", "children"),
+
     Output("bar-comparison", "figure"),
     Output("gauge-spent", "figure"),
     Output("gauge-collected", "figure"),
+
     Output("projects-table", "data"),
     Output("projects-table", "style_data_conditional"),
+
     Output("forecast-vs-actual-chart", "figure"),
+
     Input("projects-store", "data"),
     Input("filter-status", "value"),
     Input("filter-client", "value"),
@@ -695,7 +680,7 @@ def update_dashboard(store_data, status_vals, client_vals, manager_vals, search_
         create_card("المتبقي لم يصرف", fmt_money(remaining), "Remaining Budget", "📈"),
     )
 
-    # مخطط خط الصرف
+    # Forecast vs Actual
     fig_forecast = go.Figure()
     if not dff.empty:
         sorted_df = dff.sort_values("Project Name")
@@ -705,7 +690,7 @@ def update_dashboard(store_data, status_vals, client_vals, manager_vals, search_
             y=sorted_df["Forecasted Spend"],
             mode="lines+markers+text",
             line=dict(color="#fbbf24", width=3),
-            marker=dict(size=10, symbol="circle"),
+            marker=dict(size=10),
             text=sorted_df["Forecasted Spend"].apply(lambda x: f"{x:,.0f}"),
             textposition="top center",
             textfont=dict(color="#fbbf24", size=10),
@@ -716,7 +701,7 @@ def update_dashboard(store_data, status_vals, client_vals, manager_vals, search_
             y=sorted_df["Actual Cost"],
             mode="lines+markers+text",
             line=dict(color="#22c55e", width=3, dash="dash"),
-            marker=dict(size=10, symbol="diamond"),
+            marker=dict(size=10),
             text=sorted_df["Actual Cost"].apply(lambda x: f"{x:,.0f}"),
             textposition="bottom center",
             textfont=dict(color="#22c55e", size=10),
@@ -727,41 +712,91 @@ def update_dashboard(store_data, status_vals, client_vals, manager_vals, search_
             y=sorted_df["Forecasted Spend"] - sorted_df["Actual Cost"],
             mode="lines+markers",
             line=dict(color="#ef4444", width=2, dash="dot"),
-            marker=dict(size=8, symbol="triangle-up"),
+            marker=dict(size=8),
             yaxis="y2",
         ))
+
     fig_forecast.update_layout(
         title=dict(text="📊 خطة الصرف (Forecasted) مقابل المصروف الفعلي (Actual)", font=dict(color="white", size=16)),
-        xaxis=dict(title=dict(text="اسم المشروع", font=dict(color="white")), tickfont=dict(color="white", size=11), automargin=True, tickangle=-45),
+        xaxis=dict(title=dict(text="اسم المشروع", font=dict(color="white")), tickfont=dict(color="white"), automargin=True, tickangle=-45),
         yaxis=dict(title=dict(text="القيمة (ريال سعودي)", font=dict(color="white")), tickfont=dict(color="white"), tickprefix="SAR ", tickformat=",.0f"),
         yaxis2=dict(title=dict(text="الفرق", font=dict(color="#ef4444")), tickfont=dict(color="#ef4444"), overlaying="y", side="right", tickprefix="SAR ", tickformat=",.0f"),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="white")),
+        paper_bgcolor="#0f1830",
+        plot_bgcolor="#0f1830",
+        font=dict(color="white"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         height=400,
         margin=dict(l=30, r=50, t=60, b=100),
-        paper_bgcolor="#0f1830", plot_bgcolor="#0f1830", font=dict(color="white"), hovermode="x unified",
+        hovermode="x unified",
     )
 
-    # Bar Chart
+    # Bar comparison
     fig_bar = go.Figure()
     if not dff.empty:
-        fig_bar.add_trace(go.Bar(name="قيمة العقد", y=dff["Project Name"], x=dff["Contract Value"], orientation="h", text=dff["Contract Value"].apply(lambda x: f"{x:,.0f}"), textposition="outside", marker_color="#0ea5e9"))
-        fig_bar.add_trace(go.Bar(name="متوقع الصرف", y=dff["Project Name"], x=dff["Forecasted Spend"], orientation="h", text=dff["Forecasted Spend"].apply(lambda x: f"{x:,.0f}"), textposition="outside", marker_color="#fbbf24"))
-        fig_bar.add_trace(go.Bar(name="المبلغ المحصّل", y=dff["Project Name"], x=dff["Collected Amount"], orientation="h", text=dff["Collected Amount"].apply(lambda x: f"{x:,.0f}"), textposition="outside", marker_color="#22c55e"))
-    fig_bar.update_layout(barmode="group", height=400, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), margin=dict(l=30, r=20, t=20, b=20), paper_bgcolor="#0f1830", plot_bgcolor="#0f1830", font=dict(color="white"))
-    fig_bar.update_yaxes(tickfont=dict(color="white"), automargin=True)
-    fig_bar.update_xaxes(tickfont=dict(color="white"), automargin=True)
+        fig_bar.add_trace(go.Bar(
+            name="قيمة العقد",
+            y=dff["Project Name"],
+            x=dff["Contract Value"],
+            orientation="h",
+            marker_color="#0ea5e9",
+        ))
+        fig_bar.add_trace(go.Bar(
+            name="متوقع الصرف",
+            y=dff["Project Name"],
+            x=dff["Forecasted Spend"],
+            orientation="h",
+            marker_color="#fbbf24",
+        ))
+        fig_bar.add_trace(go.Bar(
+            name="المبلغ المحصّل",
+            y=dff["Project Name"],
+            x=dff["Collected Amount"],
+            orientation="h",
+            marker_color="#22c55e",
+        ))
+    fig_bar.update_layout(
+        barmode="group",
+        height=400,
+        paper_bgcolor="#0f1830",
+        plot_bgcolor="#0f1830",
+        font=dict(color="white"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(l=30, r=20, t=20, b=20),
+    )
+    fig_bar.update_yaxes(tickfont=dict(color="white"))
+    fig_bar.update_xaxes(tickfont=dict(color="white"))
 
     # Gauges
     pct_spent = (total_actual / total_contract) * 100 if total_contract != 0 else 0
     pct_collected = (total_collected / total_contract) * 100 if total_contract != 0 else 0
 
-    fig_g1 = go.Figure(go.Indicator(mode="gauge+number", value=round(pct_spent, 1), number={"suffix": "%", "font": {"size": 22, "color": "white"}}, gauge={"axis": {"range": [0, max(100, pct_spent)]}, "bar": {"color": "#00d084"}, "steps": [{"range": [0, 60], "color": "#1f2937"}, {"range": [60, 85], "color": "#0ea5e9"}, {"range": [85, 100], "color": "#ef4444"}]}, title={"text": "نسبة الصرف الفعلي", "font": {"color": "white", "size": 14}}))
+    fig_g1 = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=round(pct_spent, 1),
+        number={"suffix": "%", "font": {"size": 22, "color": "white"}},
+        gauge={
+            "axis": {"range": [0, max(100, pct_spent)]},
+            "bar": {"color": "#00d084"},
+            "steps": [{"range": [0, 60], "color": "#1f2937"}, {"range": [60, 85], "color": "#0ea5e9"}, {"range": [85, 100], "color": "#ef4444"}],
+        },
+        title={"text": "نسبة الصرف الفعلي", "font": {"color": "white", "size": 14}}
+    ))
     fig_g1.update_layout(height=220, margin=dict(l=20, r=20, t=30, b=10), paper_bgcolor="#0f1830", font=dict(color="white"))
 
-    fig_g2 = go.Figure(go.Indicator(mode="gauge+number", value=round(pct_collected, 1), number={"suffix": "%", "font": {"size": 22, "color": "white"}}, gauge={"axis": {"range": [0, max(100, pct_collected)]}, "bar": {"color": "#22c55e"}, "steps": [{"range": [0, 60], "color": "#1f2937"}, {"range": [60, 85], "color": "#a78bfa"}, {"range": [85, 100], "color": "#22c55e"}]}, title={"text": "نسبة التحصيل", "font": {"color": "white", "size": 14}}))
+    fig_g2 = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=round(pct_collected, 1),
+        number={"suffix": "%", "font": {"size": 22, "color": "white"}},
+        gauge={
+            "axis": {"range": [0, max(100, pct_collected)]},
+            "bar": {"color": "#22c55e"},
+            "steps": [{"range": [0, 60], "color": "#1f2937"}, {"range": [60, 85], "color": "#a78bfa"}, {"range": [85, 100], "color": "#22c55e"}],
+        },
+        title={"text": "نسبة التحصيل", "font": {"color": "white", "size": 14}}
+    ))
     fig_g2.update_layout(height=220, margin=dict(l=20, r=20, t=30, b=10), paper_bgcolor="#0f1830", font=dict(color="white"))
 
-    # Table
+    # Table data
     table_df = dff.copy()
     if not table_df.empty:
         table_df["Contract Value_fmt"] = table_df["Contract Value"].map(fmt_money)
@@ -769,24 +804,36 @@ def update_dashboard(store_data, status_vals, client_vals, manager_vals, search_
         table_df["Remaining Budget_fmt"] = table_df["Remaining Budget"].map(fmt_money)
         table_df["Collected Amount_fmt"] = table_df["Collected Amount"].map(fmt_money)
         table_df["Uncollected Amount_fmt"] = table_df["Uncollected Amount"].map(fmt_money)
+
         table_df["% Actual Spent_fmt"] = table_df["% Actual Spent (calc)"].map(fmt_pct_from_ratio)
         table_df["% Collected_fmt"] = table_df["% Collected (calc)"].map(fmt_pct_from_ratio)
+
         table_df["Project Manager"] = table_df["Project Manager"].fillna("—")
+
         table_records = table_df.to_dict("records")
     else:
         table_records = []
 
     style_conditional = [
-        {"if": {"filter_query": "{Remaining Budget} >= 0", "column_id": "Remaining Budget_fmt"}, "backgroundColor": "rgba(16,185,129,0.22)", "color": "white", "fontWeight": "bold"},
-        {"if": {"filter_query": "{Remaining Budget} < 0", "column_id": "Remaining Budget_fmt"}, "backgroundColor": "rgba(239,68,68,0.22)", "color": "white", "fontWeight": "bold"},
-        {"if": {"filter_query": "{Spend Status} = 'ضمن الميزانية'", "column_id": "Spend Status"}, "backgroundColor": "rgba(16,185,129,0.18)", "color": "#4ade80"},
-        {"if": {"filter_query": "{Spend Status} = 'تجاوز الميزانية'", "column_id": "Spend Status"}, "backgroundColor": "rgba(239,68,68,0.18)", "color": "#f87171"},
+        {"if": {"filter_query": "{Remaining Budget} >= 0", "column_id": "Remaining Budget_fmt"},
+         "backgroundColor": "rgba(16,185,129,0.22)", "color": "white", "fontWeight": "bold"},
+        {"if": {"filter_query": "{Remaining Budget} < 0", "column_id": "Remaining Budget_fmt"},
+         "backgroundColor": "rgba(239,68,68,0.22)", "color": "white", "fontWeight": "bold"},
+        {"if": {"filter_query": "{Spend Status} = 'ضمن الميزانية'", "column_id": "Spend Status"},
+         "backgroundColor": "rgba(16,185,129,0.18)", "color": "#4ade80"},
+        {"if": {"filter_query": "{Spend Status} = 'تجاوز الميزانية'", "column_id": "Spend Status"},
+         "backgroundColor": "rgba(239,68,68,0.18)", "color": "#f87171"},
     ]
 
-    return cards[0], cards[1], cards[2], cards[3], fig_bar, fig_g1, fig_g2, table_records, style_conditional, fig_forecast
+    return (
+        cards[0], cards[1], cards[2], cards[3],
+        fig_bar, fig_g1, fig_g2,
+        table_records, style_conditional,
+        fig_forecast
+    )
 
 # ================================================================
-# 9. باقي Callbacks (Detail, Add/Edit, Delete, Export, Refresh)
+# 10. باقي Callbacks (تفاصيل/إضافة/تعديل/حذف/تصدير/تحديث)
 # ================================================================
 @app.callback(
     Output("project-detail-modal", "is_open"),
@@ -801,8 +848,10 @@ def toggle_project_detail(active_cell, close_clicks, table_data):
     if not ctx.triggered:
         return False, ""
     trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
+
     if trigger_id == "detail-close":
         return False, ""
+
     if trigger_id == "projects-table" and active_cell and table_data:
         row_idx = active_cell["row"]
         if row_idx < len(table_data):
@@ -811,10 +860,13 @@ def toggle_project_detail(active_cell, close_clicks, table_data):
                 html.Div(style={"display": "grid", "gridTemplateColumns": "1fr 1fr", "gap": "12px"}, children=[
                     html.Div(className="project-detail-card", children=[html.Div(className="label", children="معرف المشروع"), html.Div(className="value", children=p.get("Project ID"))]),
                     html.Div(className="project-detail-card", children=[html.Div(className="label", children="الحالة"), html.Div(className="value", children=p.get("Status"))]),
-                    html.Div(className="project-detail-card", children=[html.Div(className="label", children="اسم المشروع"), html.Div(className="value", children=p.get("Project Name"), style={"fontSize": "15px"})]),
+                    html.Div(className="project-detail-card", children=[html.Div(className="label", children="اسم المشروع"), html.Div(className="value", children=p.get("Project Name"))]),
                     html.Div(className="project-detail-card", children=[html.Div(className="label", children="القطاع / العميل"), html.Div(className="value", children=p.get("Client / Sector"))]),
                     html.Div(className="project-detail-card", children=[html.Div(className="label", children="مدير المشروع"), html.Div(className="value", children=p.get("Project Manager"))]),
-                    html.Div(className="project-detail-card", children=[html.Div(className="label", children="Spend Status"), html.Div(className="value", children=p.get("Spend Status"), style={"color": "#22c55e" if p.get("Spend Status") == "ضمن الميزانية" else "#ef4444"})]),
+                    html.Div(className="project-detail-card", children=[html.Div(className="label", children="Spend Status"), html.Div(
+                        className="value", children=p.get("Spend Status"),
+                        style={"color": "#22c55e" if p.get("Spend Status") == "ضمن الميزانية" else "#ef4444"}
+                    )]),
                 ]),
                 html.Div(style={"display": "grid", "gridTemplateColumns": "repeat(4, 1fr)", "gap": "10px", "marginTop": "10px"}, children=[
                     html.Div(className="project-detail-card", children=[html.Div(className="label", children="قيمة العقد"), html.Div(className="value", children=p.get("Contract Value_fmt"))]),
@@ -852,7 +904,12 @@ def control_project_modal(add_clicks, edit_clicks, cancel_clicks, active_cell, t
     ctx = callback_context
     if not ctx.triggered:
         return False, None, "", "", "", "", "قيد التنفيذ", None, None, None, None, None, ""
+
     trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
+
+    if trigger_id == "modal-cancel":
+        return False, None, "", "", "", "", "قيد التنفيذ", None, None, None, None, None, ""
+
     if trigger_id == "add-project-btn":
         max_num = 0
         if store_data:
@@ -861,16 +918,21 @@ def control_project_modal(add_clicks, edit_clicks, cancel_clicks, active_cell, t
                 if pid.startswith("PRJ-"):
                     try:
                         val = int(pid.split("-")[1])
-                        if val > max_num:
-                            max_num = val
+                        max_num = max(max_num, val)
                     except:
                         pass
-        return True, None, f"PRJ-{max_num + 1:03d}", "", "", "", "قيد التنفيذ", 0, 0, 0, 0, 0, ""
-    elif trigger_id == "open-edit-from-detail-btn" and active_cell and table_data:
+        new_id = f"PRJ-{max_num + 1:03d}"
+        return True, None, new_id, "", "", "", "قيد التنفيذ", 0, 0, 0, 0, 0, ""
+
+    if trigger_id == "open-edit-from-detail-btn" and active_cell and table_data:
         row_idx = active_cell["row"]
         if row_idx < len(table_data):
             p = table_data[row_idx]
-            return True, p.get("Project ID"), p.get("Project ID"), p.get("Project Name"), p.get("Project Manager"), p.get("Client / Sector"), p.get("Status"), p.get("Contract Value"), p.get("Actual Cost"), p.get("Forecasted Spend"), p.get("Collected Amount"), p.get("Uncollected Amount"), ""
+            return True, p.get("Project ID"), p.get("Project ID"), p.get("Project Name"),
+                   p.get("Project Manager"), p.get("Client / Sector"), p.get("Status"),
+                   p.get("Contract Value"), p.get("Actual Cost"), p.get("Forecasted Spend"),
+                   p.get("Collected Amount"), p.get("Uncollected Amount"), ""
+
     return False, None, "", "", "", "", "قيد التنفيذ", None, None, None, None, None, ""
 
 @app.callback(
@@ -892,31 +954,49 @@ def control_project_modal(add_clicks, edit_clicks, cancel_clicks, active_cell, t
     State("projects-store", "data"),
     prevent_initial_call=True,
 )
-def save_project_to_store(n_clicks, edit_id, project_id, name, manager, client, status, contract_val, actual_val, forecast_val, collected_val, uncollected_val, store_data):
+def save_project_to_store(n_clicks, edit_id, project_id, name, manager, client, status,
+                           contract_val, actual_val, forecast_val, collected_val, uncollected_val, store_data):
     if not n_clicks:
         return dash.no_update, dash.no_update, dash.no_update
+
     if not project_id or not name or not client:
         return dash.no_update, True, "⚠️ يرجى ملء الحقول الإلزامية (المعرف، الاسم، العميل)"
+
     df = pd.DataFrame(store_data) if store_data else pd.DataFrame(columns=cols)
+
     contract = float(contract_val or 0)
     actual = float(actual_val or 0)
     forecast = float(forecast_val or 0)
     collected = float(collected_val or 0)
     uncollected = float(uncollected_val or 0)
+
     remaining = contract - actual
     spent_ratio = actual / contract if contract != 0 else 0
     collected_ratio = collected / contract if contract != 0 else 0
     spend_status = "تجاوز الميزانية" if forecast > contract else "ضمن الميزانية"
+
     new_row = {
-        "Project ID": project_id, "Project Name": name, "Project Manager": manager,
-        "Client / Sector": client, "Status": status, "Contract Value": contract,
-        "Actual Cost": actual, "Forecasted Spend": forecast, "Collected Amount": collected,
-        "Uncollected Amount": uncollected, "% Spent": spent_ratio, "% Collected": collected_ratio,
-        "Remaining Budget": remaining, "% Actual Spent (calc)": spent_ratio,
-        "% Collected (calc)": collected_ratio, "Spend Status": spend_status,
+        "Project ID": project_id,
+        "Project Name": name,
+        "Project Manager": manager,
+        "Client / Sector": client,
+        "Status": status,
+        "Contract Value": contract,
+        "Actual Cost": actual,
+        "Forecasted Spend": forecast,
+        "Collected Amount": collected,
+        "Uncollected Amount": uncollected,
+        "% Spent": spent_ratio,
+        "% Collected": collected_ratio,
+        "Remaining Budget": remaining,
+        "% Actual Spent (calc)": spent_ratio,
+        "% Collected (calc)": collected_ratio,
+        "Spend Status": spend_status,
     }
+
     if edit_id:
         df = df[df["Project ID"] != edit_id]
+
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     return df.to_dict("records"), False, ""
 
@@ -965,7 +1045,7 @@ def refresh_all_store(n_clicks, store_data):
     return df.to_dict("records")
 
 # ================================================================
-# 10. تشغيل التطبيق
+# 11. تشغيل التطبيق
 # ================================================================
 if __name__ == "__main__":
     app.run_server(host="0.0.0.0", port=8050, debug=True)
